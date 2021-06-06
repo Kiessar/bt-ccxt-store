@@ -22,6 +22,7 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
 import collections
+import datetime
 import json
 
 from backtrader import BrokerBase, OrderBase, Order
@@ -107,7 +108,10 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
         },
         'canceled_order': {
             'key': 'status',
-            'value': 'canceled'}
+            'value': 'canceled'},
+        'expired_order': {
+            'key': 'status',
+            'value': 'expired'}
     }
 
     def __init__(self, broker_mapping=None, debug=False, **kwargs):
@@ -216,6 +220,13 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
                 self.notify(o_order)
                 self.open_orders.remove(o_order)
                 self.get_balance()
+            if ccxt_order[self.mappings['expired_order']['key']] == self.mappings['expired_order']['value']:
+                # pos = self.getposition(o_order.data, clone=False)
+                # pos.update(o_order.size, o_order.price)
+                o_order.expire()
+                self.notify(o_order)
+                self.open_orders.remove(o_order)
+                self.get_balance()
 
     def _submit(self, owner, data, exectype, side, amount, price, params):
         order_type = self.order_types.get(exectype) if exectype else 'market'
@@ -223,6 +234,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
         # Extract CCXT specific params if passed to the order
         params = params['params'] if 'params' in params else params
         params['created'] = created  # Add timestamp of order creation for backtesting
+
         ret_ord = self.store.create_order(symbol=data.p.dataname, order_type=order_type, side=side,
                                           amount=amount, price=price, params=params)
 
@@ -235,12 +247,36 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
         self.notify(order)
         return order
 
+    def convert_valid(self, val):
+        if isinstance(val, datetime.date):
+            # comparison will later be done against the raw datetime[0] value
+            val = self.data.date2num(val)
+        elif isinstance(val, datetime.timedelta):
+            # offset with regards to now ... get utcnow + offset
+            # when reading with date2num ... it will be automatically localized
+            if val == self.DAY:
+                valid = datetime.datetime.combine(
+                    self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
+            else:
+                valid = self.data.datetime.datetime() + val
+
+            val = self.data.date2num(valid)
+
+        elif val is not None:
+            if not val:  # avoid comparing None and 0
+                valid = datetime.datetime.combine(
+                    self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
+            else:  # assume float
+                valid = self.data.datetime[0] + val
+        return val
+
     def buy(self, owner, data, size, price=None, plimit=None,
             exectype=None, valid=None, tradeid=0, oco=None,
             trailamount=None, trailpercent=None,
             **kwargs):
         del kwargs['parent']
         del kwargs['transmit']
+        kwargs["expiretm"] =self.convert_valid(valid)
         return self._submit(owner, data, exectype, 'buy', size, price, kwargs)
 
     def sell(self, owner, data, size, price=None, plimit=None,
@@ -249,6 +285,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
              **kwargs):
         del kwargs['parent']
         del kwargs['transmit']
+        kwargs["expiretm"] =self.convert_valid(valid)
         return self._submit(owner, data, exectype, 'sell', size, price, kwargs)
 
     def cancel(self, order):
