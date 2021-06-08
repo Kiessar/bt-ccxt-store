@@ -86,7 +86,7 @@ class CCXTFeed(with_metaclass(MetaCCXTFeed, DataBase)):
         self._data = deque()  # data queue for price data
         self._last_id = ''  # last processed trade id for ohlcv
         self._last_ts = 0  # last processed timestamp for ohlcv
-        self._last_ohlc = [] # last retrieved ohlc
+
     def start(self, ):
         DataBase.start(self)
 
@@ -146,7 +146,7 @@ class CCXTFeed(with_metaclass(MetaCCXTFeed, DataBase)):
 
         while True:
             dlen = len(self._data)
-            last_since = since
+
             if self.p.debug:
                 # TESTING
                 since_dt = datetime.utcfromtimestamp(since // 1000) if since is not None else 'NA'
@@ -182,8 +182,7 @@ class CCXTFeed(with_metaclass(MetaCCXTFeed, DataBase)):
 
                 if None in ohlcv:
                     continue
-                if len(self._last_ohlc) == 0:
-                    self._last_ohlc = ohlcv
+
                 tstamp = ohlcv[0]
 
                 # Prevent from loading incomplete data
@@ -193,17 +192,12 @@ class CCXTFeed(with_metaclass(MetaCCXTFeed, DataBase)):
                 if tstamp > self._last_ts:
                     if self.p.debug:
                         print('Adding: {}'.format(ohlcv))
-                    # self._data.append(ohlcv)
-                        self._data.append(self._last_ohlc)
-            #         self._last_ts = tstamp
-            self._last_ohlc = ohlcv
-            # if dlen == len(self._data):
-            #     break
-            since = tstamp + 1
+                    self._data.append(ohlcv)
+                    self._last_ts = tstamp
+                    since = self._last_ts
 
-            data_length = len(self._data)
-            if data_length >= limit or since == last_since or last_since == None:
-                    break
+            if dlen == len(self._data):
+                break
 
     def _load_ticks(self):
         if self._last_id is None:

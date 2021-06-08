@@ -28,6 +28,8 @@ import json
 from backtrader import BrokerBase, OrderBase, Order
 from backtrader.position import Position
 from backtrader.utils.py3 import queue, with_metaclass
+from backtrader import date2num
+from pytz import utc
 
 from .ccxtstore import CCXTStore
 
@@ -199,7 +201,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
             ccxt_order = self.store.fetch_order(oID, o_order.data.p.dataname)
             
             # Check for new fills
-            if 'trades' in ccxt_order:
+            if 'trades' in ccxt_order and ccxt_order['trades']:
                 for fill in ccxt_order['trades']:
                     if fill not in o_order.executed_fills:
                         o_order.execute(fill['datetime'], fill['amount'], fill['price'], 
@@ -227,6 +229,10 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
                 self.notify(o_order)
                 self.open_orders.remove(o_order)
                 self.get_balance()
+            if ccxt_order[self.mappings['canceled_order']['key']] == self.mappings['canceled_order']['value']:
+                self.open_orders.remove(o_order)
+                o_order.cancel()
+                self.notify(o_order)
 
     def _submit(self, owner, data, exectype, side, amount, price, params):
         order_type = self.order_types.get(exectype) if exectype else 'market'
@@ -250,24 +256,21 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
     def convert_valid(self, val):
         if isinstance(val, datetime.date):
             # comparison will later be done against the raw datetime[0] value
-            val = self.data.date2num(val)
+            val = datetime.datetime.timestamp(val)
         elif isinstance(val, datetime.timedelta):
             # offset with regards to now ... get utcnow + offset
             # when reading with date2num ... it will be automatically localized
-            if val == self.DAY:
-                valid = datetime.datetime.combine(
-                    self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
-            else:
-                valid = self.data.datetime.datetime() + val
 
-            val = self.data.date2num(valid)
+            valid = datetime.datetime.now() + val
 
-        elif val is not None:
-            if not val:  # avoid comparing None and 0
-                valid = datetime.datetime.combine(
-                    self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
-            else:  # assume float
-                valid = self.data.datetime[0] + val
+            val = datetime.datetime.timestamp(valid)
+
+        # elif val is not None:
+        #     if not val:  # avoid comparing None and 0
+        #         valid = datetime.datetime.combine(
+        #             self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
+        #     else:  # assume float
+        #         valid = self.data.datetime[0] + val
         return val
 
     def buy(self, owner, data, size, price=None, plimit=None,
@@ -276,7 +279,8 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
             **kwargs):
         del kwargs['parent']
         del kwargs['transmit']
-        kwargs["expiretm"] =self.convert_valid(valid)
+        if valid:
+            kwargs["expiretm"] =self.convert_valid(valid)
         return self._submit(owner, data, exectype, 'buy', size, price, kwargs)
 
     def sell(self, owner, data, size, price=None, plimit=None,
@@ -285,7 +289,8 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
              **kwargs):
         del kwargs['parent']
         del kwargs['transmit']
-        kwargs["expiretm"] =self.convert_valid(valid)
+        if valid:
+            kwargs["expiretm"] =self.convert_valid(valid)
         return self._submit(owner, data, exectype, 'sell', size, price, kwargs)
 
     def cancel(self, order):
@@ -305,7 +310,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
 
         if ccxt_order[self.mappings['closed_order']['key']] == self.mappings['closed_order']['value']:
             return order
-
+        
         ccxt_order = self.store.cancel_order(oID, order.data.p.dataname)
 
         if self.debug:
@@ -313,10 +318,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
             print('Value Received: {}'.format(ccxt_order[self.mappings['canceled_order']['key']]))
             print('Value Expected: {}'.format(self.mappings['canceled_order']['value']))
 
-        if ccxt_order[self.mappings['canceled_order']['key']] == self.mappings['canceled_order']['value']:
-            self.open_orders.remove(order)
-            order.cancel()
-            self.notify(order)
+
         return order
 
     def get_orders_open(self, safe=False):
