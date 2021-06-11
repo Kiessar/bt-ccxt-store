@@ -218,6 +218,19 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
             if ccxt_order[self.mappings['closed_order']['key']] == self.mappings['closed_order']['value']:
                 pos = self.getposition(o_order.data, clone=False)
                 pos.update(o_order.size, o_order.price)
+                o_order.execute(datetime.datetime.fromtimestamp(ccxt_order['timestamp']),
+                ccxt_order['amount'],
+                ccxt_order['price'],
+                0, #closed
+                0, #closedvalue
+                ccxt_order['fee'], #closedcomm
+                0, #opened
+                0, #opendvalue
+                0, #openedcomm
+                0, #margin
+                0, # pnl
+                0, #psize
+                0) #pprice
                 o_order.completed()
                 self.notify(o_order)
                 self.open_orders.remove(o_order)
