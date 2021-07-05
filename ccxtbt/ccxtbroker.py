@@ -213,26 +213,33 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
 
             if self.debug:
                 print(json.dumps(ccxt_order, indent=self.indent))
-
+            # print(json.dumps(ccxt_order, indent=self.indent), flush=True)
             # Check if the order is closed
             if ccxt_order[self.mappings['closed_order']['key']] == self.mappings['closed_order']['value']:
+                
                 pos = self.getposition(o_order.data, clone=False)
                 pos.update(o_order.size, o_order.price)
-                o_order.execute(datetime.datetime.fromtimestamp(ccxt_order['timestamp']),
+                ts= datetime.datetime.now()
+                try:
+                    ts = datetime.datetime.fromtimestamp(ccxt_order['timestamp'])
+                except Exception as e:
+                    print(e)
+                o_order.executed.add(
+                ts,
                 ccxt_order['amount'],
-                ccxt_order['price'],
+                ccxt_order['average'],
                 0, #closed
                 0, #closedvalue
-                ccxt_order['fee'], #closedcomm
+                ccxt_order['fee']['cost'], #closedcomm
                 0, #opened
                 0, #opendvalue
                 0, #openedcomm
-                0, #margin
+                # 0, #margin
                 0, # pnl
                 0, #psize
                 0) #pprice
                 o_order.completed()
-                self.notify(o_order)
+                # self.notify(o_order)
                 self.open_orders.remove(o_order)
                 self.get_balance()
             if ccxt_order[self.mappings['expired_order']['key']] == self.mappings['expired_order']['value']:
@@ -261,6 +268,7 @@ class CCXTBroker(with_metaclass(MetaCCXTBroker, BrokerBase)):
 
         order = CCXTOrder(owner, data, _order)
         order.price = ret_ord['price']
+        print("submiting order")
         self.open_orders.append(order)
 
         self.notify(order)
